@@ -365,7 +365,8 @@ private:
     // the stuff
     RoutingTable buckets4 {};
     RoutingTable buckets6 {};
-
+    
+    // 用于存储一个InfoHash下的数据
     std::map<InfoHash, Storage> store;
     std::map<SockAddr, StorageBucket, SockAddr::ipCmp> store_quota;
     size_t total_values {0};

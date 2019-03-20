@@ -769,9 +769,17 @@ Dht::announce(const InfoHash& id,
         time_point created,
         bool permanent)
 {
+    // 获得ip4或者ip6的SearchMap，它实际上是std::map<InfoHash, Sp<Search>>
     auto& srs = searches(af);
+
+    // 获得对应id的下的search -> <InfoHash, Search>
+    // A search is a list of the nodes we think are responsible
+    // for storing values for a given hash.
     auto srp = srs.find(id);
+
+    //如果找不到对应id的search，那创建search
     auto sr = srp == srs.end() ? search(id, af) : srp->second;
+
     if (!sr) {
         if (callback)
             callback(false, {});
@@ -779,12 +787,18 @@ Dht::announce(const InfoHash& id,
     }
     sr->done = false;
     sr->expired = false;
+
+    // 找出已经Announce过的数据
     auto a_sr = std::find_if(sr->announce.begin(), sr->announce.end(), [&](const Announce& a){
         return a.value->id == value->id;
     });
+
+    // 如果没有Announce
     if (a_sr == sr->announce.end()) {
         sr->announce.emplace_back(Announce {permanent, value, created, callback});
+        // std::vector<SearchNode> nodes
         for (auto& n : sr->nodes) {
+            // 部署announce任务
             n.probe_query.reset();
             n.acked[value->id].first.reset();
         }
@@ -811,6 +825,8 @@ Dht::announce(const InfoHash& id,
             a_sr->callback = callback;
         }
     }
+    
+    // 安排执行
     scheduler.edit(sr->nextSearchStep, scheduler.time());
 }
 
@@ -914,11 +930,13 @@ struct GetStatus : public OpStatus {
 void
 Dht::put(const InfoHash& id, Sp<Value> val, DoneCallback callback, time_point created, bool permanent)
 {
+    // 如果没有val则直接返回
     if (not val) {
         if (callback)
             callback(false, {});
         return;
     }
+    // 如val没有ID则随机生成
     if (val->id == Value::INVALID_ID) {
         crypto::random_device rdev;
         std::uniform_int_distribution<Value::Id> rand_id {};
@@ -927,6 +945,7 @@ Dht::put(const InfoHash& id, Sp<Value> val, DoneCallback callback, time_point cr
     scheduler.syncTime();
     const auto& now = scheduler.time();
     created = std::min(now, created);
+    // 存储到内存std::map<InfoHash, Storage> store里
     storageStore(id, val, created, {}, permanent);
 
     DHT_LOG.d(id, "put: adding %s -> %s", id.toString().c_str(), val->toString().c_str());
@@ -939,6 +958,8 @@ Dht::put(const InfoHash& id, Sp<Value> val, DoneCallback callback, time_point cr
             op.status.done = true;
         }
     };
+
+    // 发布
     announce(id, AF_INET, val, [=](bool ok4, const std::vector<Sp<Node>>& nodes) {
         DHT_LOG.d(id, "Announce done IPv4 %d", ok4);
         auto& o = *op;
